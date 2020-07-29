@@ -1,0 +1,3 @@
+[submodule "smog/smog/FoHIS"]
+	path = smog/smog/FoHIS
+	url = https://github.com/noahzn/FoHIS.git

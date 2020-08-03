@@ -96,9 +96,18 @@ class CycleGANModel(BaseModel):
         )  # combine visualizations for A and B
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>.
         if self.isTrain:
-            self.model_names = ["G_A", "G_B", "D_A", "D_B", "C_A", "C_B"]
+            self.model_names = [
+                "G_A_E",
+                "G_A_D",
+                "G_B_E",
+                "G_B_D",
+                "D_A",
+                "D_B",
+                "C_A",
+                "C_B",
+            ]
         else:  # during test time, only load Gs
-            self.model_names = ["G_A", "G_B"]
+            self.model_names = ["G_A_E", "G_A_D", "G_B_E", "G_B_D"]
 
         # define networks (both Generators and discriminators)
         # The naming is different from those used in the paper.
@@ -114,6 +123,8 @@ class CycleGANModel(BaseModel):
             opt.init_gain,
             self.gpu_ids,
         )
+        self.netG_A_E = self.netG_A["E"]
+        self.netG_A_D = self.netG_A["D"]
         self.netG_B = networks.define_G(
             opt.output_nc,
             opt.input_nc,
@@ -125,6 +136,8 @@ class CycleGANModel(BaseModel):
             opt.init_gain,
             self.gpu_ids,
         )
+        self.netG_B_E = self.netG_B["E"]
+        self.netG_B_D = self.netG_B["D"]
 
         self.C_A_is_setup = False
         self.C_B_is_setup = False
@@ -180,16 +193,12 @@ class CycleGANModel(BaseModel):
             self.criterionIdt = torch.nn.L1Loss()
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G_E = torch.optim.Adam(
-                itertools.chain(
-                    self.netG_A["E"].parameters(), self.netG_B["E"].parameters()
-                ),
+                itertools.chain(self.netG_A_E.parameters(), self.netG_B_E.parameters()),
                 lr=opt.lr,
                 betas=(opt.beta1, 0.999),
             )
             self.optimizer_G_D = torch.optim.Adam(
-                itertools.chain(
-                    self.netG_A["D"].parameters(), self.netG_B["D"].parameters()
-                ),
+                itertools.chain(self.netG_A_D.parameters(), self.netG_B_D.parameters()),
                 lr=opt.lr,
                 betas=(opt.beta1, 0.999),
             )
@@ -219,17 +228,21 @@ class CycleGANModel(BaseModel):
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
-        self.latent_fake_B = self.netG_A["E"](self.real_A)  # G_A(A)
-        if not self.C_A_is_setup:
+        if not self.isTrain:
+            self.real_A = self.real_A.squeeze(0)
+            self.real_B = self.real_B.squeeze(0)
+        self.latent_fake_B = self.netG_A_E(self.real_A)  # G_A(A)
+        if not self.C_A_is_setup and self.isTrain:
             self.netC_A.module.setup(self.latent_fake_B)
             self.C_A_is_setup = True
-        self.out_C_A = self.netC_A(self.latent_fake_B)
-        self.fake_B = self.netG_A["D"](self.latent_fake_B)  # G_A(A)
-        self.latent_rec_A = self.netG_B["E"](self.fake_B)
-        self.rec_A = self.netG_B["D"](self.latent_rec_A)  # G_B(G_A(A))
+        if self.isTrain:
+            self.out_C_A = self.netC_A(self.latent_fake_B)
+        self.fake_B = self.netG_A_D(self.latent_fake_B)  # G_A(A)
+        self.latent_rec_A = self.netG_B_E(self.fake_B)
+        self.rec_A = self.netG_B_D(self.latent_rec_A)  # G_B(G_A(A))
 
-        self.latent_fake_A = self.netG_B["E"](self.real_B)  # G_B(B)
-        if not self.C_B_is_setup:
+        self.latent_fake_A = self.netG_B_E(self.real_B)  # G_B(B)
+        if not self.C_B_is_setup and self.isTrain:
             self.netC_B.module.setup(self.latent_fake_B)
             self.optimizer_C = torch.optim.Adam(
                 itertools.chain(self.netC_A.parameters(), self.netC_B.parameters()),
@@ -238,10 +251,11 @@ class CycleGANModel(BaseModel):
             )
             self.optimizers.append(self.optimizer_C)
             self.C_B_is_setup = True
-        self.out_C_B = self.netC_B(self.latent_fake_A)
-        self.fake_A = self.netG_B["D"](self.latent_fake_A)  # G_B(B)
-        self.latent_rec_B = self.netG_A["E"](self.fake_A)
-        self.rec_B = self.netG_A["D"](self.latent_rec_B)  # G_A(G_B(B))
+        if self.isTrain:
+            self.out_C_B = self.netC_B(self.latent_fake_A)
+        self.fake_A = self.netG_B_D(self.latent_fake_A)  # G_B(B)
+        self.latent_rec_B = self.netG_A_E(self.fake_A)
+        self.rec_B = self.netG_A_D(self.latent_rec_B)  # G_A(G_B(B))
 
     def backward_D_basic(self, netD, real, fake):
         """Calculate GAN loss for the discriminator
@@ -292,14 +306,14 @@ class CycleGANModel(BaseModel):
         # Identity loss
         if lambda_idt > 0:
             # G_A should be identity if real_B is fed: ||G_A(B) - B||
-            self.latent_idt_A = self.netG_A["E"](self.real_B)
-            self.idt_A = self.netG_A["D"](self.latent_idt_A)
+            self.latent_idt_A = self.netG_A_E(self.real_B)
+            self.idt_A = self.netG_A_D(self.latent_idt_A)
             self.loss_idt_A = (
                 self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
             )
             # G_B should be identity if real_A is fed: ||G_B(A) - A||
-            self.latent_idt_B = self.netG_B["E"](self.real_A)
-            self.idt_B = self.netG_B["D"](self.latent_idt_B)
+            self.latent_idt_B = self.netG_B_E(self.real_A)
+            self.idt_B = self.netG_B_D(self.latent_idt_B)
             self.loss_idt_B = (
                 self.criterionIdt(self.idt_B, self.real_A) * lambda_A * lambda_idt
             )

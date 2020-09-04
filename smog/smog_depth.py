@@ -1,4 +1,4 @@
-from PIL import Image
+from PIL import Image, ImageFilter
 import numpy as np
 import sys
 import json
@@ -16,8 +16,8 @@ def add_smog(
     use_seg,
     use_blend,
     blending_alpha,
-    filter_color=(213, 162, 20),
-    blending_color=(200, 200, 200, 255),
+    filter_color=(255, 255, 255),
+    blending_color=(225, 194, 142, 255),
     resize=None,
 ):
     im = Image.open(im_path).convert("RGBA")
@@ -42,18 +42,21 @@ def add_smog(
         seg = np.array(im_seg)
 
         # Define the filters for sky zone and no-sky zone
-        sky_filter = np.dstack((np.array(filter_), 100 * np.ones(depth.shape))).astype(
+        no_sky_filter = np.dstack((np.array(filter_), depth * 255 + 30)).astype(
             np.uint8
-        )
-        no_sky_filter = np.dstack((np.array(filter_), depth * 200)).astype(np.uint8)
+        )  # Offset of 30 to guarantee a minimum of smog in the no-sky area
+        sky_filter = np.dstack((np.array(filter_), 150 * np.ones(depth.shape))).astype(
+            np.uint8
+        )  # Arbitrary value of 150 for the sky-zone after (trial and error)
 
-        # Consider depth fot the no-sky zone
+        # Consider depth fot the no-sky zones
         # Sky is class [8, 19, 49, 255], so we can only look at R value to know if it's sky
         no_sky_mask = (
             seg[:, :, 0] != (8 * np.ones((seg.shape[0], seg.shape[1])))
         ).astype(np.uint8)
         no_sky_filter[:, :, 3] = no_sky_mask * no_sky_filter[:, :, 3]
         no_sky_filter = Image.fromarray(no_sky_filter).convert("RGBA")
+        no_sky_filter = no_sky_filter.filter(ImageFilter.BoxBlur(40))
         im.paste(no_sky_filter, (0, 0), no_sky_filter)
 
         # Uniform pasting for the sky-zone
@@ -61,12 +64,14 @@ def add_smog(
             np.uint8
         )
         sky_filter[:, :, 3] = sky_mask * sky_filter[:, :, 3]
+        # sky_filter[:, :, 3] = sky_mask * (np.max(sky_filter[:, :, 3]) - 30)
         sky_filter = Image.fromarray(sky_filter).convert("RGBA")
+        sky_filter = sky_filter.filter(ImageFilter.BoxBlur(40))
         im.paste(sky_filter, (0, 0), sky_filter)
     else:
         filter_ = np.dstack((np.array(filter_), depth * 128)).astype(np.uint8)
         filter_ = Image.fromarray(filter_).convert("RGBA")
-        im.paste(filter_, (0, 0), filter_)
+        im.composite(filter_, (0, 0), filter_)
 
     if use_blend:
         smogged = Image.blend(
@@ -91,9 +96,9 @@ if __name__ == "__main__":
             im_path=elem["x"],
             depth_path=elem["d"],
             seg_path=elem["s"],
-            use_seg=False,
+            use_seg=True,
             use_blend=True,
-            blending_alpha=0.5,
+            blending_alpha=0.4,
         )
         im.save(os.path.join(save_dir, os.path.basename(elem["x"])), format="PNG")
 

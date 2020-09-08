@@ -5,8 +5,8 @@ import json
 import os
 
 
-def normalize(arr):
-    return (arr - arr.min()) / (arr.max() - arr.min())
+def normalize(arr, mini = 0, maxi = 1):
+    return (mini + (maxi - mini)*(arr - arr.min())/(arr.max() - arr.min()))
 
 
 def add_smog(
@@ -34,7 +34,7 @@ def add_smog(
         im_depth.thumbnail(resize, Image.ANTIALIAS)
 
     depth = np.array(im_depth)
-    depth = normalize(depth)
+    depth = normalize(depth, 30, 255)
 
     filter_ = Image.new("RGB", np.transpose(depth).shape, filter_color)
 
@@ -42,7 +42,7 @@ def add_smog(
         seg = np.array(im_seg)
 
         # Define the filters for sky zone and no-sky zone
-        no_sky_filter = np.dstack((np.array(filter_), depth * 255 + 30)).astype(
+        no_sky_filter = np.dstack((np.array(filter_), depth)).astype(
             np.uint8
         )  # Offset of 30 to guarantee a minimum of smog in the no-sky area
         sky_filter = np.dstack((np.array(filter_), 150 * np.ones(depth.shape))).astype(

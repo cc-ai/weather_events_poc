@@ -6,7 +6,7 @@ import os
 
 
 def normalize(arr, mini = 0, maxi = 1):
-    return (mini + (maxi - mini)*(arr - arr.min())/(arr.max() - arr.min()))
+    return (mini + (maxi - mini)*((arr - arr.min())/(arr.max() - arr.min())))
 
 
 def add_smog(

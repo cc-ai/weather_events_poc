@@ -7,20 +7,35 @@ import os
 
 
 def normalize(arr, mini=0, maxi=1):
+    # breakpoint()
     return mini + (maxi - mini) * ((arr - arr.min()) / (arr.max() - arr.min()))
 
 
-# 181,84,55
+def normalize_depth(arr, mini=0, maxi=1):
+    # breakpoint()
+    return mini + (maxi - mini) * arr / arr.max()
+
+
+def normalize_depth_2(arr, arr_min, arr_max, mini=0, maxi=1):
+    # breakpoint()
+    return mini + (maxi - mini) * (arr - arr_min) / (arr_max - arr_min)
+
+
+# 219,1,1
 def add_fire(
     im,
     depth_array,
     use_blend=False,
     blending_alpha=0.2,
-    filter_color=(219, 1, 1),
-    other_color=(255, 139, 50),
+    filter_color=(235, 111, 50),
+    other_color=(2, 42, 42),
     blending_color=(219, 1, 1),
     resize=None,
 ):
+    # Darkening the picture
+    enhancer = ImageEnhance.Brightness(im)
+    im = enhancer.enhance(0.3)
+
     # Warming the picture
     im_array = np.array(im)
     im_array[:, :, 2] = np.minimum(im_array[:, :, 2], im_array[:, :, 2] - 20)
@@ -28,29 +43,32 @@ def add_fire(
     im_array[:, :, 0] = np.maximum(im_array[:, :, 0], im_array[:, :, 0] + 40)
     im = Image.fromarray(im_array).convert("RGBA")
 
-    # Darkening the picture
-    enhancer = ImageEnhance.Brightness(im)
-    im = enhancer.enhance(0.25)
-
     # Adding bright red/orange mostly in the sky, scaled with depth
-    depth = normalize(depth_array, 0.3, 1.0)
-    depth = normalize(1.0 / depth)
-    treshold = 0.85
-    depth[depth < treshold] = normalize(depth[depth < treshold] ** 3, 0, treshold)
+    threshold = 300
+    if depth_array.min() < threshold:  # may be sky in the picture
+        depth_array[depth_array > threshold] = normalize(
+            depth_array[depth_array > threshold] ** 0.001,
+            max(threshold, depth_array.min()),
+            depth_array.max(),
+        )
+        min_norm = 0.25
+        depth = normalize_depth_2(depth_array, 0.0, depth_array.max(), min_norm, 1.0)
+        depth = 1 / depth
+        depth = normalize_depth_2(depth, 1.0, 1.0 / min_norm)
 
-    im_depth = Image.fromarray((depth * 200.0).squeeze()).convert("L")
+        im_depth = Image.fromarray((depth * 255.0).squeeze()).convert("L")
 
-    if resize is None:  # Resize depth to im size
-        im_depth = im_depth.resize(im.size)
-    else:
-        im.thumbnail(resize, Image.ANTIALIAS)
-        im_depth.thumbnail(resize, Image.ANTIALIAS)
+        if resize is None:  # Resize depth to im size
+            im_depth = im_depth.resize(im.size)
+        else:
+            im.thumbnail(resize, Image.ANTIALIAS)
+            im_depth.thumbnail(resize, Image.ANTIALIAS)
 
-    depth = np.array(im_depth)
+        depth = np.array(im_depth)
 
-    filter_ = Image.new("RGB", np.transpose(depth).shape, filter_color)
+        filter_ = Image.new("RGB", np.transpose(depth).shape, filter_color)
 
-    im.paste(filter_, (0, 0), im_depth)
+        im.paste(filter_, (0, 0), im_depth)
 
     if use_blend:
         smogged = Image.blend(
@@ -83,6 +101,7 @@ if __name__ == "__main__":
 
     for elem in data:
         im_path = elem["x"]
+        # print(im_path)
         im = Image.open(im_path).convert("RGBA")
         input_im = transform(np.array(im)[:, :, :3]).to(device)
 

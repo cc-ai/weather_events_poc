@@ -46,7 +46,7 @@ def get_cutoff(v, intervals, num_sky_pixels):
     return None
 
 
-def change_sky_zone(sky_mask, increase=True, p_w=0, p_h=0):
+def increase_sky_mask(sky_mask, increase=True, p_w=0, p_h=0):
     if p_h <= 0 and p_w <= 0:
         return sky_mask
 
@@ -55,26 +55,14 @@ def change_sky_zone(sky_mask, increase=True, p_w=0, p_h=0):
 
     new_mask = np.copy(sky_mask)
 
-    if increase:
-        for i in range(1, n_cols):
-            new_mask[:, i::] += sky_mask[:, 0:-i]
-            new_mask[:, 0:-i] += sky_mask[:, i::]
-        for i in range(1, n_lines):
-            new_mask[i::, :] += new_mask[0:-i, :]
-            new_mask[0:-i, :] += new_mask[i::, :]
-    else:
-        for i in range(1, n_cols):
-            new_mask[:, i::] &= sky_mask[:, 0:-i]
-            new_mask[:, 0:-i] &= sky_mask[:, i::]
-        for i in range(1, n_lines):
-            new_mask[i::, :] &= new_mask[0:-i, :]
-            new_mask[0:-i, :] &= new_mask[i::, :]
+    for i in range(1, n_cols):
+        new_mask[:, i::] += sky_mask[:, 0:-i]
+        new_mask[:, 0:-i] += sky_mask[:, i::]
+    for i in range(1, n_lines):
+        new_mask[i::, :] += new_mask[0:-i, :]
+        new_mask[0:-i, :] += new_mask[i::, :]
 
-    if increase:
-        new_mask[new_mask >= 1] = 1
-    # else:
-    #     maxi = np.max(new_mask)
-    #     new_mask[new_mask < maxi] = 0
+    new_mask[new_mask >= 1] = 1
 
     return new_mask
 
@@ -83,12 +71,10 @@ def add_fire(
     im,
     depth_array,
     sky_mask,
-    entropy,
     use_seg=True,
     use_depth=False,
     use_blend=False,
     degrade_colors=False,
-    filter_color=(235, 36, 15),
     blending_color=(219, 1, 1),
 ):
     if degrade_colors and use_seg:
@@ -148,19 +134,15 @@ def add_fire(
 
         if use_seg:
             # Compute first mask with small Gaussian blur and paste on picture
-            sky_mask1 = change_sky_zone(sky_mask, True, 0.01, 0.01)
-            # sky_mask1 = sky_mask
-            im_mask = Image.fromarray((sky_mask1 * 200.0).squeeze()).convert("L")
+            sky_mask = increase_sky_mask(sky_mask, True, 0.01, 0.01)
+            im_mask = Image.fromarray((sky_mask * 200.0).squeeze()).convert("L")
             blur_radius = 200
-            # blur_radius = normalize(entropy, 0, 3.46, 5, 500)
-            # if blur_radius > 10:
-            #     sky_mask1 = change_sky_zone(sky_mask, True, 0.01, 0.01)
             mask1 = im_mask.filter(ImageFilter.GaussianBlur(blur_radius))
             im.paste(filter_1, (0, 0), mask1)  # mask1
 
             if degrade_colors:
                 # Compute second mask with bigger Gaussian blur
-                sky_mask2 = change_sky_zone(sky_mask, False, 0.02, 0.02)
+                sky_mask2 = increase_sky_mask(sky_mask, False, 0.02, 0.02)
                 mask2_ = Image.fromarray((sky_mask2 * 220.0).squeeze()).convert("L")
                 mask2_ = mask2_.filter(ImageFilter.GaussianBlur(100))  # 300 works well
                 mask2 = Image.fromarray((sky_mask * 0.0).squeeze()).convert("L")
@@ -183,10 +165,10 @@ def add_fire(
 if __name__ == "__main__":
     path_to_json = sys.argv[1]
     save_dir = sys.argv[2]
-    use_seg = int(sys.argv[3])
-    use_depth = int(sys.argv[4])
-    use_blend = int(sys.argv[5])
-    degrade_colors = int(sys.argv[6])
+    use_seg = True
+    use_depth = False
+    use_blend = False
+    degrade_colors = False
 
     if use_depth:
         # Load MiDaS model
@@ -207,7 +189,6 @@ if __name__ == "__main__":
     for elem in data:
         # Load input image
         im_path = elem["x"]
-        print(im_path)
         im = Image.open(im_path).convert("RGBA")
         depth_array = None
 
@@ -216,18 +197,6 @@ if __name__ == "__main__":
         seg_tens = torch.load(elem["s"]).squeeze()
         seg_ind = torch.argmax(seg_tens, dim=0)
         sky_mask = seg_ind == 9
-        breakpoint()
-        seg_tens[:, seg_ind] = 0  # DEXTER
-        seg_ind2 = torch.argmax(seg_tens, dim=0)  # DEXTER
-        sky_mask2 = seg_ind2 == 9  # DEXTER
-        global_mask = sky_mask + sky_mask2  # DEXTER
-
-        seg_ent = torch.load(elem["e"])
-        entropy1 = torch.sum(seg_ent[global_mask]) / torch.sum(global_mask)
-        entropy = torch.sum(seg_ent[sky_mask]) / torch.sum(sky_mask)
-        print(entropy1)
-        print(entropy)
-
         sky_mask = F.interpolate(
             sky_mask.unsqueeze(0).unsqueeze(0).type(torch.FloatTensor),
             (im.size[1], im.size[0]),
@@ -236,6 +205,7 @@ if __name__ == "__main__":
 
         if use_depth:
             input_im = transform(np.array(im)[:, :, :3]).to(device)
+
             # Infer depth map with MiDaS
             with torch.no_grad():
                 depth = midas(input_im).cpu().numpy()
@@ -246,14 +216,7 @@ if __name__ == "__main__":
             depth_array = np.array(im_depth)
 
         im_smogged = add_fire(
-            im,
-            depth_array,
-            sky_mask,
-            entropy,
-            use_seg,
-            use_depth,
-            use_blend,
-            degrade_colors,
+            im, depth_array, sky_mask, use_seg, use_depth, use_blend, degrade_colors,
         )
         im_smogged.save(
             os.path.join(save_dir, os.path.basename(elem["x"])), format="PNG"

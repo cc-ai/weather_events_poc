@@ -18,16 +18,16 @@ parser.add_argument(
     "-m", "--mask_dir", type=str, required=True, help="Directory of sky masks",
 )
 parser.add_argument(
-    "-br", "--blur_r", type=int, default=200, required=True, help="Blur radius",
+    "-br", "--blur_r", type=int, default=150, help="Blur radius",
 )
 parser.add_argument(
-    "-r", "--red", type=int, default=255, required=True, help="Red intensity",
+    "-r", "--red", type=int, default=255, help="Red intensity",
 )
 parser.add_argument(
-    "-g", "--green", type=int, default=0, required=True, help="Green intensity",
+    "-g", "--green", type=int, default=38, help="Green intensity",
 )
 parser.add_argument(
-    "-b", "--blue", type=int, default=0, required=True, help="Blue intensity",
+    "-b", "--blue", type=int, default=1, help="Blue intensity",
 )
 parser.add_argument(
     "-o",
@@ -84,6 +84,9 @@ def add_fire(im, sky_mask, filter_color, blur_radius):
         im_mask = Image.fromarray((sky_mask * 255.0).squeeze()).convert("L")
         filter_mask = im_mask.filter(ImageFilter.GaussianBlur(blur_radius))
         im.paste(filter_, (0, 0), filter_mask)
+
+    darkener = ImageEnhance.Brightness(im)
+    im = darkener.enhance(0.9)
 
     return im
 

@@ -1,13 +1,9 @@
 import os
 import torch
 import numpy as np
-import sys
 import argparse
-import json
-import os
-import torch.nn.functional as F
 from PIL import Image, ImageEnhance, ImageFilter
-from sklearn.mixture import GaussianMixture
+from pathlib import Path
 
 
 parser = argparse.ArgumentParser()
@@ -108,19 +104,17 @@ if __name__ == "__main__":
     print("\n- Creating lists of images and corresponding masks ...")
     for im_name in ims_names:
         for mask_name in masks_names:
-            if os.path.splitext(im_name)[0] == os.path.splitext(mask_name)[0]:
-                im = Image.open(os.path.join(images_dir, im_name)).convert("RGB")
+            if Path(im_name).stem == Path(mask_name).stem:
+                im = Image.open(Path(images_dir, im_name)).convert("RGB")
                 ims_list.append(im)
-                mask = Image.open(os.path.join(sky_masks_dir, mask_name)).convert("1")
+                mask = Image.open(Path(sky_masks_dir, mask_name)).convert("1")
                 mask = mask.resize(im.size, resample=Image.NEAREST)
                 masks_list.append(np.array(mask))
-                im_names_with_mask.append(os.path.splitext(im_name)[0])
+                im_names_with_mask.append(Path(im_name).stem)
     print("- Done.\n")
 
     for i, image in enumerate(ims_list):
         print("- Processing image", im_names_with_mask[i], "...")
         im_wildfire = add_fire(image, masks_list[i], filter_color, blur_r)
-        im_wildfire.save(
-            os.path.join(save_dir, im_names_with_mask[i] + ".png"), format="PNG"
-        )
+        im_wildfire.save(Path(save_dir, im_names_with_mask[i] + ".png"), format="PNG")
     print("- Done.\n")

@@ -62,7 +62,7 @@ def add_smog(
     A = airlight * np.ones(3)
 
     im = Image.open(img_path)
-    I0 = np.array(im)
+    I0 = np.array(im)[:, :, :3]
     I = srgb2lrgb(I0)
 
     # depth_array= normalize(np.array(Image.open(depth_path)))*255
@@ -141,7 +141,7 @@ if __name__ == "__main__":
 
     exp = None
     if args.comet:
-        exp = comet_ml.Experiment(project_name="smog")
+        exp = comet_ml.Experiment(project_name="smogv2")
 
     # Load MiDaS model
     midas = torch.hub.load("intel-isl/MiDaS", "MiDaS")

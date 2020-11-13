@@ -142,6 +142,7 @@ if __name__ == "__main__":
     exp = None
     if args.comet:
         exp = comet_ml.Experiment(project_name="smogv2")
+        exp.log_asset(args.json)
 
     # Load MiDaS model
     midas = torch.hub.load("intel-isl/MiDaS", "MiDaS")

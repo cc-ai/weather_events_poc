@@ -1,3 +1,4 @@
+import comet_ml
 import os
 import json
 import numpy as np
@@ -6,6 +7,8 @@ import torch
 import torch.nn.functional as F
 import noise
 import sys
+import argparse
+from pathlib import Path
 
 
 def get_sky_mask(sky_path):
@@ -53,6 +56,7 @@ def add_smog(
     airlight=0.76,
     beta_param=2,
     vr=1,
+    exp=None,
 ):
 
     A = airlight * np.ones(3)
@@ -87,6 +91,13 @@ def add_smog(
 
     # convert linear RGB to sRGB
     I2 = lrgb2srgb(Ic)
+
+    if exp is not None:
+        exp.log_image(I2, img_path)
+        exp.log_parameter("perlin_noise", pert_perlin)
+        exp.log_parameter("beta", beta_param)
+        exp.log_parameter("airlight", airlight)
+
     return I2
 
 
@@ -108,8 +119,29 @@ def perlin_noise(world, scale=600.0, octaves=6, persistence=0.5, lacunarity=2.0)
 
 
 if __name__ == "__main__":
-    path_to_json = sys.argv[1]
-    save_dir = sys.argv[2]
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", "-j", type=str)
+    parser.add_argument("--save_dir", "-s", type=str, default="")
+    parser.add_argument("--comet", "-c", action="store_true", default=False)
+    parser.add_argument("--no_pert", action="store_true", default=False)
+    args = parser.parse_args()
+
+    path_to_json = Path(args.json)
+
+    assert path_to_json.exists()
+
+    if args.save_dir:
+        save_dir = Path(args.save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        save_dir = None
+        assert parser.comet, "Specify a --save_dir or use --comet"
+
+    use_perlin_perturbation = not args.no_pert
+
+    exp = None
+    if args.comet:
+        exp = comet_ml.Experiment(project_name="smog")
 
     # Load MiDaS model
     midas = torch.hub.load("intel-isl/MiDaS", "MiDaS")
@@ -123,8 +155,6 @@ if __name__ == "__main__":
 
     with open(path_to_json, "r") as f:
         data = json.load(f)
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
 
     for elem in data:
         im_path = elem["x"]
@@ -136,8 +166,15 @@ if __name__ == "__main__":
         with torch.no_grad():
             depth_array = midas(input_im).squeeze().cpu().numpy()
 
-        I2 = add_smog(im_path, depth_array, sky_path=None, pert_perlin=True)
-        im_smogged = Image.fromarray((255 * normalize(I2)).astype(np.uint8))
-        im_smogged.save(
-            os.path.join(save_dir, os.path.basename(elem["x"])), format="PNG"
+        I2 = add_smog(
+            im_path,
+            depth_array,
+            sky_path=None,
+            pert_perlin=use_perlin_perturbation,
+            exp=exp,
         )
+        if save_dir is not None:
+            im_smogged = Image.fromarray((255 * normalize(I2)).astype(np.uint8))
+            im_smogged.save(
+                os.path.join(save_dir, os.path.basename(elem["x"])), format="PNG"
+            )

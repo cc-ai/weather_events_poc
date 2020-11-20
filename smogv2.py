@@ -6,7 +6,7 @@ from PIL import Image
 import torch
 import torch.nn.functional as F
 import noise
-import sys
+
 import argparse
 from pathlib import Path
 
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     parser.add_argument("--json", "-j", type=str)
     parser.add_argument("--save_dir", "-s", type=str, default="")
     parser.add_argument("--comet", "-c", action="store_true", default=False)
-    parser.add_argument("--no_pert", action="store_true", default=False)
+    parser.add_argument("--perlin_noise", "-p", action="store_true", default=False)
     args = parser.parse_args()
 
     path_to_json = Path(args.json)
@@ -137,7 +137,7 @@ if __name__ == "__main__":
         save_dir = None
         assert parser.comet, "Specify a --save_dir or use --comet"
 
-    use_perlin_perturbation = not args.no_pert
+    use_perlin_perturbation = args.perlin_noise
 
     exp = None
     if args.comet:
